@@ -1,0 +1,23 @@
+#%RAML 1.0
+version: v1
+title: Salesforce Contacts API
+/contacts:
+  post: 
+    body: 
+      application/json:
+    responses: 
+      200:
+        body: 
+          application/json:
+  get:
+    responses: 
+      200:
+        body: 
+          application/json:
+  /{id}:
+    get:
+      responses: 
+        200:
+          body: 
+            application/json:
+
