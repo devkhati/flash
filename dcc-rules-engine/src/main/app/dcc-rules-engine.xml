@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:context="http://www.springframework.org/schema/context" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd">
+    <http:listener-config name="HTTP_RulesAPI_Configuration" host="${http.host}" port="${http.port}" doc:name="HTTP Listener Configuration" basePath="/api"/>
+    <http:request-config name="HTTP_Reg-Req_Configuration" host="${es_sysapi_host}" port="${es_sysapi_port}" doc:name="HTTP Request Configuration" connectionIdleTimeout="60000" basePath="/api"/>
+    <context:property-placeholder location="${mule.env}.properties"/>
+    <flow name="dcc-rules-engine-meterflow">
+        <http:listener config-ref="HTTP_RulesAPI_Configuration" path="${meter_base_path}" allowedMethods="POST" doc:name="HTTP"/>
+        <set-payload value="#[message.payloadAs(java.lang.String)]" doc:name="Set Payload" mimeType="application/json"/>
+       <!--  <set-variable variableName="meterid" value="#[json:meter_id]" doc:name="meterid"/>  -->
+ 
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-variable variableName="meterinfo"><![CDATA[%dw 1.0
+%output application/json
+---
+payload]]></dw:set-variable>
+            <dw:set-variable variableName="req_meterId"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.meter_id]]></dw:set-variable>
+            <dw:set-variable variableName="req_customerId"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.customer_id]]></dw:set-variable>
+        </dw:transform-message>
+        <logger message="#[flowVars.req_meterId] ---#[flowVars.req_customerId]" level="INFO" doc:name="Logger"/>
+ <http:request config-ref="HTTP_Reg-Req_Configuration" path="${meter.sysapi.path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="meterId" value="#[flowVars.req_meterId]"/>
+            </http:request-builder>
+        </http:request>
+        <object-to-string-transformer doc:name="Object to String"/>
+        <!-- <set-payload value="{          
+&quot;customer_id&quot;: &quot;c001&quot;,
+ &quot;meter_id&quot;: &quot;m001&quot;,
+ &quot;sid&quot;: &quot;s001&quot;
+  }" doc:name="Set Payload"/> -->
+        <message-properties-transformer scope="invocation" doc:name="Message Properties">
+            <add-message-property key="resp_meterId" value="#[json:meter_id]"/>
+            <add-message-property key="resp_customerId" value="#[json:customer_id]"/>
+        </message-properties-transformer>
+        <logger message="&amp;&amp;&amp;&amp;&amp;&amp;#[flowVars.resp_meterId]-------#[flowVars.resp_customerId]" level="INFO" doc:name="Logger"/>
+        <choice doc:name="Choice">
+            <when expression="#[(flowVars.req_meterId == flowVars.resp_meterId) &amp;&amp; (flowVars.req_customerId == flowVars.resp_customerId)]">
+                <set-payload value="{&quot;ValidationStatus&quot;:&quot;Request Validated Successfully&quot;}" doc:name="Set Payload"/>
+                <logger level="INFO" doc:name="Logger" message="Request Validated Successfully"/>
+            </when>
+            <otherwise>
+                <set-payload value="{&quot;ValidationStatus&quot;:&quot;Validation Failed&quot;}" doc:name="Set Payload"/>
+                <logger message="Validation Failed" level="INFO" doc:name="Logger"/>
+            </otherwise>
+        </choice>
+    </flow>
+    <flow name="dcc-rules-engine-supplierflow">
+        <http:listener config-ref="HTTP_RulesAPI_Configuration" path="${supplier_base_path}" allowedMethods="POST" doc:name="HTTP"/>
+        <set-payload value="#[message.payloadAs(java.lang.String)]" doc:name="Set Payload" mimeType="application/json"/>
+       <!--  <set-variable variableName="meterid" value="#[json:meter_id]" doc:name="meterid"/>  -->
+ 
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-variable variableName="supplierinfo"><![CDATA[%dw 1.0
+%output application/json
+---
+payload]]></dw:set-variable>
+            <dw:set-variable variableName="req_SupplierId"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.gaining_sid]]></dw:set-variable>
+        </dw:transform-message>
+        <logger message="#[flowVars.req_SupplierId]------req_SupplierId" level="INFO" doc:name="Logger"/>
+ <http:request config-ref="HTTP_Reg-Req_Configuration" path="${supplier.sysapi.path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="supplierId" value="#[flowVars.req_SupplierId]"/>
+            </http:request-builder>
+        </http:request>
+        <object-to-string-transformer doc:name="Object to String"/>
+        <set-variable variableName="resp_sid" value="#[json:sid]" doc:name="resp_sid"/>
+        <!-- <set-payload value="{          
+&quot;customer_id&quot;: &quot;c001&quot;,
+ &quot;meter_id&quot;: &quot;m001&quot;,
+ &quot;sid&quot;: &quot;s001&quot;
+  }" doc:name="Set Payload"/> -->
+        <logger message="&amp;&amp;&amp;&amp;&amp;&amp;#[flowVars.resp_sid] -- resp sid --Payload#[payload]" level="INFO" doc:name="Logger"/>
+        <choice doc:name="Choice">
+            <when expression="#[payload.contains('sid')]">
+                <set-payload value="{&quot;ValidationStatus&quot;:&quot;Request Validated Successfully&quot;}" doc:name="Set Payload Success" mimeType="application/json"/>
+                <logger level="INFO" doc:name="Logger" message="Request Validated Successfully"/>
+            </when>
+            <otherwise>
+                <set-payload value="{&quot;ValidationStatus&quot;:&quot;Validation Failed&quot;}" doc:name="Set Payload" mimeType="application/json"/>
+                <logger message="Validation Failed" level="INFO" doc:name="Logger"/>
+            </otherwise>
+        </choice>
+    </flow>
+</mule>

@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:anypoint-mq="http://www.mulesoft.org/schema/mule/anypoint-mq" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:context="http://www.springframework.org/schema/context" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/anypoint-mq http://www.mulesoft.org/schema/mule/anypoint-mq/current/mule-anypoint-mq.xsd">
+    <http:listener-config name="HTTP_SupplierListener_Configuration" host="${http.host}" port="${http.port}" doc:name="HTTP Listener Configuration" basePath="/api"/>
+    <http:request-config name="HTTP_Request_Configuration" host="${es_sysapi_host}" port="${es_sysapi_port}"  doc:name="HTTP Request Configuration"/>
+    <context:property-placeholder location="${mule.env}.properties"/>
+    <anypoint-mq:config name="Anypoint_MQ_Configuration" doc:name="Anypoint MQ Configuration" acknowledgementMode="NONE">
+        <anypoint-mq:provider url="https://mq-eu-west-2.anypoint.mulesoft.com/api/v1" clientId="239a62c3e87d42629db2a72eed43115d" clientSecret="789176447ECC4Bb2Bc74fc306509BA91"/>
+    </anypoint-mq:config>
+   <flow name="dcc-supplier-apiFlow-supplierResponse">
+        <http:listener config-ref="HTTP_SupplierListener_Configuration" path="${supplier_path}" allowedMethods="POST" doc:name="HTTP"/>
+        <set-payload value="#[message.payloadAs(java.lang.String)]" doc:name="Set Payload"/>
+        <message-properties-transformer scope="invocation" doc:name="Message Properties">
+            <add-message-property key="meter_id" value="#[json:MeterId]"/>
+            <add-message-property key="status" value="#[json:Status]"/>
+            <add-message-property key="reg_id" value="#[json:RegistrationId]"/>
+            <add-message-property key="reg_req_id" value="#[json:RequestId]"/>
+        </message-properties-transformer>
+        <choice doc:name="Choice">
+            <when expression="#[flowVars.Status=='Accepted']">
+                <flow-ref name="ApprovedFlow" doc:name="ApprovedFlow"/>
+            </when>
+            <when expression="#[flowVars.Status=='Rejected']">
+                <flow-ref name="RejectedFlow" doc:name="RejectedFlow"/>
+            </when>
+            <otherwise>
+                <set-payload value="{
+&quot;Status&quot;:&quot;Not a valid response from supplier&quot;
+}
+" doc:name="Set Payload" mimeType="application/json"/>
+            </otherwise>
+        </choice>
+    </flow> 
+    <flow name="ApprovedFlow">
+        <set-payload value="#[payload]" mimeType="application/json" doc:name="Set Payload"/>
+        <logger message="No objection received from the losing supplier for the Registration Request Id #[flowVars.reg_req_id]    #[server.dateTime]." level="INFO" doc:name="Logger"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"id":payload."RegistrationId",
+	"meter_id":payload.MeterId,
+	"status":"Confirmed"
+	
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <http:request config-ref="HTTP_Request_Configuration" path="${es_reg_path}" method="PUT" doc:name="HTTP"/>
+        <logger message="Registration lifecycle status changed to confirmed at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+
+        <choice doc:name="Choice">
+            <when expression="#[!(message.payloadAs(java.lang.String).contains('error'))]">
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Registration_Request_Id": flowVars.reg_req_id,
+	"Status":"Switch Registration lifecycle status updated to confirmed"
+} ]]></dw:set-payload>
+                </dw:transform-message>
+
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Registration_Request_Id": flowVars.reg_req_id,
+	"Status":"Exception while updating Switch Registration lifecycle status to confirmed"
+} ]]></dw:set-payload>
+                </dw:transform-message>
+
+            </otherwise>
+        </choice>
+    </flow>
+    <flow name="RejectedFlow">
+    <set-payload value="#[payload]" mimeType="application/json" doc:name="Set Payload"/>
+        <logger message="Objection received from the losing supplier for the Registration Request Id #[flowVars.reg_req_id]  at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+        <scatter-gather doc:name="Scatter-Gather">
+            <processor-chain>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"id":payload."RequestId",
+	"meter_id":payload.MeterId,
+	"status":"Rejected"
+	
+}]]></dw:set-payload>
+                </dw:transform-message>
+                <http:request config-ref="HTTP_Request_Configuration" path="${es_reg_req_path}" method="PUT" doc:name="HTTP"/>
+                <logger message="Registration Request status changed to rejected at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+            </processor-chain>
+            <processor-chain>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"id":payload."RegistrationId",
+	"meter_id":payload.MeterId,
+	"status":"Cancelled"
+	
+}]]></dw:set-payload>
+                </dw:transform-message>
+                <http:request config-ref="HTTP_Request_Configuration" path="${es_reg_path}" method="PUT" doc:name="HTTP"/>
+                <logger message="Registration lifecycle status changed to cancelled at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+            </processor-chain>
+        </scatter-gather>
+        <choice doc:name="Choice">
+            <when expression="#[!(message.payloadAs(java.lang.String).contains('error'))]">
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Registration_Request_Id": flowVars.reg_req_id,
+	"Status":"Switch Registration lifecycle status updated to cancelled"
+} ]]></dw:set-payload>
+                </dw:transform-message>
+
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Registration_Request_Id": flowVars.reg_req_id,
+	"Status":"Exception while updating Switch Registration lifecycle status to cancelled"
+} ]]></dw:set-payload>
+                </dw:transform-message>
+
+            </otherwise>
+        </choice>
+</flow>
+    <flow name="SupplierResponseTimeoutFlow">
+        <poll doc:name="Poll">
+            <fixed-frequency-scheduler frequency="2" timeUnit="MINUTES"/>
+            <logger message="Scheduler process started at #[server.dateTime] to update switch requests in validated status for more than 2 minutes." level="INFO" doc:name="Logger"/>
+        </poll>
+        <http:request config-ref="HTTP_Request_Configuration" path="${es_get_reg_path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="status" value="'Pending'"/>
+
+            </http:request-builder>
+        </http:request>
+        <choice doc:name="Choice">
+            <when expression="#[!(message.payloadAs(java.lang.String).contains('error'))]">
+                <flow-ref name="ValidatedRecordsFoundFlow" doc:name="ValidatedRecordsFoundFlow"/>
+            </when>
+            <otherwise>
+                <logger message="No switch request found to confirm #[server.dateTime]. " level="INFO" doc:name="NoRecordsLogger"/>
+            </otherwise>
+        </choice>
+        
+    </flow>
+    <flow name="ValidatedRecordsFoundFlow" processingStrategy="synchronous">
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-payload>
+        </dw:transform-message>
+        <foreach doc:name="For Each">
+            <dw:transform-message doc:name="Transform Message">
+                <dw:set-variable variableName="diffTime"><![CDATA[%dw 1.0
+%output application/json
+%var regReqdate = (payload.created_date) as :string {format: "yyyy-MM-dd'T'HH:mm:ss"} as
+   	:localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"}
+%var currentDate = now as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"} 
+---
+
+(regReqdate - currentDate).seconds]]></dw:set-variable>
+                <dw:set-variable variableName="meter_id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.meter_id
+]]></dw:set-variable>
+                <dw:set-variable variableName="id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.id]]></dw:set-variable>
+            </dw:transform-message>
+            <choice doc:name="Choice">
+                <when expression="#[flowVars.diffTime&gt;120]">
+                    <flow-ref name="UpdateRequestToConfirmed" doc:name="UpdateRequestToConfirmed"/>
+                </when>
+                <otherwise>
+                    <logger message="No switch request found to confirm #[server.dateTime]. " level="INFO" doc:name="Logger"/>
+                </otherwise>
+            </choice>
+        </foreach>
+    </flow>
+    <flow name="UpdateRequestToConfirmed">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"id":flowVars.id,
+	"meter_id":flowVars.meter_id,
+	"status":"Confirmed"
+	
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <http:request config-ref="HTTP_Request_Configuration" path="${es_reg_path}" method="PUT" doc:name="HTTP"/>
+
+        <logger message="Registration lifecycle status changed to confirmed at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+    </flow>
+
+  <flow name="dcc-supplier-apiFlow">
+        <anypoint-mq:subscriber config-ref="Anypoint_MQ_Configuration" destination="dcc-switch-request-notification" doc:name="Anypoint MQ" acknowledgementMode="NONE" pollingTime="10000000"/>
+        <logger message="Invitation to intervene issued to Supplier at #[server.dateTime]" level="INFO" doc:name="Logger"/>
+    </flow>
+    <flow name="SecureStatusUpdateFlow">
+        <poll doc:name="Poll">
+            <fixed-frequency-scheduler frequency="1" timeUnit="MINUTES"/>
+            <logger message="Scheduler process started at #[server.dateTime] to update switch requests in Confirmed status for more than 5 minutes." level="INFO" doc:name="Logger"/>
+        </poll>
+        <http:request config-ref="HTTP_Request_Configuration" path="${es_get_reg_path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="status" value="'Confirmed'"/>
+            </http:request-builder>
+        </http:request>
+        <choice doc:name="Choice">
+            <when expression="#[!(message.payloadAs(java.lang.String).contains('error'))]">
+                <flow-ref name="ConfirmedRecordsFoundFlow" doc:name="ConfirmedRecordsFoundFlow"/>
+            </when>
+            <otherwise>
+                <logger message="No switch request found to mark as secure at #[server.dateTime]. " level="INFO" doc:name="NoRecordsLogger"/>
+            </otherwise>
+        </choice>
+    </flow> 
+     <flow name="ConfirmedRecordsFoundFlow" processingStrategy="synchronous">
+    <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-payload>
+        </dw:transform-message>
+
+        <foreach doc:name="For Each">
+            <dw:transform-message doc:name="Transform Message">
+                <dw:set-variable variableName="diffTime"><![CDATA[%dw 1.0
+%output application/json
+%var modifiedDate = (payload.modified_date) as :string {format: "yyyy-MM-dd'T'HH:mm:ss"} as
+   	:localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"}
+%var currentDate = now as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"} 
+---
+
+(modifiedDate - currentDate).seconds]]></dw:set-variable>
+                <dw:set-variable variableName="meter_id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.meter_id
+]]></dw:set-variable>
+                <dw:set-variable variableName="id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.id]]></dw:set-variable>
+            </dw:transform-message>
+
+            <choice doc:name="Choice">
+                <when expression="#[flowVars.diffTime&gt;300]">
+
+                    <flow-ref name="UpdateRequestToSecure" doc:name="UpdateRequestToSecure"/>
+                </when>
+                <otherwise>
+                    <logger message="No switch request found to mark as secure at  #[server.dateTime]. " level="INFO" doc:name="Logger"/>
+                </otherwise>
+            </choice>
+        </foreach>
+        </flow>
+            <flow name="UpdateRequestToSecure">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"id":flowVars.id,
+	"meter_id":flowVars.meter_id,
+	"status":"Secure"
+	
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <http:request config-ref="HTTP_Request_Configuration" path="${es_reg_path}" method="PUT" doc:name="HTTP"/>
+
+        <logger message="Registration lifecycle status changed to secure at #[server.dateTime]." level="INFO" doc:name="Logger"/>
+    </flow>
+</mule>

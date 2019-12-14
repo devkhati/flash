@@ -1,0 +1,13 @@
+#%RAML 1.0 Library
+types:
+ SuccessDetails: !include successDetails.raml
+ Switch: !include switch.raml
+ ErrorObject: !include errorObject.raml
+
+ ErrorDetails:
+   type: object
+   properties:
+    status: string 
+    error: 
+      type: ErrorObject
+      required: true

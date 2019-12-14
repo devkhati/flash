@@ -1,0 +1,129 @@
+#%RAML 1.0
+title: dcc-reg-request-api
+
+types: 
+  reg_request: !include types/reg_request-dataType.raml
+  registration: !include types/registration-dataType.raml
+  meter: !include types/Meter-dataType.raml
+  customer: !include types/customer-dataType.raml
+  supplier: !include types/supplier-dataType.raml
+
+
+/dcc:
+  /meter:
+    get:
+      queryParameters: 
+        meterId: string
+      responses: 
+        200:
+          body: 
+            application/json:
+              type: meter
+              example: !include examples/meter.json
+    post:
+      body: 
+        application/json:
+          type: meter
+          example: !include examples/meter.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}
+                            
+  /reg_request:
+    get:
+     queryParameters:
+      reg_requestId: string
+     responses: 
+       200:
+        body: 
+          application/json:
+            type: reg_request
+    post:
+      body: 
+        application/json:
+          type: reg_request
+          example: !include examples/reg_request.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}
+    put:
+      body: 
+        application/json:
+          type: reg_request
+          example: !include examples/reg_request.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}    
+  /registration:
+    get:
+      queryParameters: 
+        regId: string
+      responses: 
+        200:
+          body: 
+            application/json:
+              type: registration  
+    post:
+      body: 
+        application/json:
+          type: registration
+          example: !include examples/registration.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"} 
+    put:
+      body: 
+        application/json:
+          type: registration
+          example: !include examples/registration.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}                
+  /customer:
+    get:
+      queryParameters: 
+        customerId: string
+      responses: 
+        200:
+         body: 
+           application/json:
+             type: customer
+    post:
+      body: 
+        application/json:
+          type: customer
+          example: !include examples/customer.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}            
+  /supplier:     
+    get:
+      queryParameters: 
+        supplierId: string
+      responses: 
+        200:
+          body: 
+            application/json:
+              type: supplier
+    post:
+      body: 
+        application/json:
+          type: supplier
+          example: !include examples/supplier.json
+      responses: 
+        200:
+          body: 
+            application/json:
+              example: {"Message":"created successfully"}                  

@@ -1,0 +1,29 @@
+{
+  {
+  "hits": {
+    "hits": [
+      {
+        "_score": 0.2876821,
+        "_type": "dcc",
+        "_id": "KGtwMGcBdnG1yTt8Kxpb",
+        "_source": {
+          "customer_id": "c001",
+          "meter_id": "m001",
+          "sid": "s001"
+        },
+        "_index": "meter"
+      }
+    ],
+    "total": 1,
+    "max_score": 0.2876821
+  },
+  "_shards": {
+    "successful": 5,
+    "failed": 0,
+    "skipped": 0,
+    "total": 5
+  },
+  "took": 3,
+  "timed_out": false
+}
+}

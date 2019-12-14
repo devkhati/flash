@@ -1,0 +1,10 @@
+{
+    "status": "error",
+    "error": {
+        "errorCode": "500",
+        "errorDateTime": "2018-11-18T23:50:51+0530",
+        "errorType": "Technical",
+        "errorSummary": "Request is not in the valid format",
+        "errorMessage": "Required query parameter customerId not specified"
+    }
+}

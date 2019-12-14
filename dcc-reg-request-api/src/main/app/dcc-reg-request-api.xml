@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+    <http:listener-config xmlns:http="http://www.mulesoft.org/schema/mule/http" name="dcc-reg-request-api-httpListenerConfig" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+     <http:request-config name="Elasticsearch_DB_HTTP_Request_Configuration" protocol="HTTPS" host="${elasticsearch.db.host}" port="${elasticsearch.db.port}" doc:name="HTTP Request Configuration">
+        <http:basic-authentication username="${elasticsearch.db.username}" password="${elasticsearch.db.password}"/>
+    </http:request-config>
+    <apikit:config xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" name="dcc-reg-request-api-config" raml="dcc-reg-request-api.raml" consoleEnabled="false" doc:name="Router"/>
+    <http:request-config name="Reg_req_HTTP_Request_Configuration" host="${reg.request.api.host}" port="${reg.request.api.port}" doc:name="HTTP Request Configuration"/>
+    <flow name="dcc-reg-request-api-main">
+        <http:listener xmlns:http="http://www.mulesoft.org/schema/mule/http" config-ref="dcc-reg-request-api-httpListenerConfig" path="/api/*" doc:name="HTTP"/>
+        <apikit:router xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" config-ref="dcc-reg-request-api-config" doc:name="APIkit Router"/>
+        <exception-strategy ref="dcc-reg-request-api-apiKitGlobalExceptionMapping" doc:name="Reference Exception Strategy"/>
+    </flow>
+    <flow name="dcc-reg-request-api-console">
+        <http:listener xmlns:http="http://www.mulesoft.org/schema/mule/http" config-ref="dcc-reg-request-api-httpListenerConfig" path="/console/*" doc:name="HTTP"/>
+        <apikit:console xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" config-ref="dcc-reg-request-api-config" doc:name="APIkit Console"/>
+    </flow>
+    <flow name="put:/dcc/reg_request:application/json:dcc-reg-request-api-config">
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-variable variableName="meter_id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.meter_id]]></dw:set-variable>
+            <dw:set-variable variableName="status"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.status]]></dw:set-variable>
+        </dw:transform-message>
+        <http:request config-ref="Reg_req_HTTP_Request_Configuration" path="${reg.request.path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="meter_id" value="#[flowVars.reg_requestId]"/>
+            </http:request-builder>
+        </http:request>
+        <choice doc:name="Choice">
+            <when expression="#[message.inboundProperties.Id != null]">
+                <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"customer_id":payload.customer_id,
+	"meter_id":payload.meter_id,
+	"status":flowVars.status,
+	"gaining_sid":payload.gaining_sid,
+	"loosing_sid":payload.loosing_sid	
+}]]></dw:set-payload>
+                    <dw:set-variable variableName="id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.id]]></dw:set-variable>
+                </dw:transform-message>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reqreq.path}/{unique.Id}" method="PUT" doc:name="HTTP">
+                    <http:request-builder>
+                        <http:uri-param paramName="unique.Id" value="#[flowVars.id]"/>
+                    </http:request-builder>
+                </http:request>
+                <set-payload value="{ &quot;Message&quot; : &quot;Updated successfully&quot; }" mimeType="application/json" doc:name="Set Payload"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for reg-request-Id:' ++ flowVars.reg_requestId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+    </flow>
+    <flow name="put:/dcc/registration:application/json:dcc-reg-request-api-config">
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-variable variableName="meter_id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.meter_id]]></dw:set-variable>
+            <dw:set-variable variableName="status"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.status]]></dw:set-variable>
+
+        </dw:transform-message>
+        <http:request config-ref="Reg_req_HTTP_Request_Configuration" path="${get.reg.id.path}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:query-param paramName="meter_id" value="#[flowVars.meter_id]"/>
+            </http:request-builder>
+        </http:request>
+
+        <choice doc:name="Choice">
+            <when expression="#[message.inboundProperties.Id != null]">
+                <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"customer_id":payload.customer_id,
+	"gaining_sid":payload.gaining_sid,
+	"status":flowVars.status,
+	"meter_id":payload.meter_id,
+	"created_date":payload.created_date
+	
+}]]></dw:set-payload>
+                    <dw:set-variable variableName="id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.id]]></dw:set-variable>
+                </dw:transform-message>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reg.path}/{unique.Id}" method="PUT" doc:name="HTTP">
+                    <http:request-builder>
+                        <http:uri-param paramName="unique.Id" value="#[flowVars.id]"/>
+
+                    </http:request-builder>
+                </http:request>
+                <set-payload value="{ &quot;Message&quot; : &quot;Updated successfully&quot; }" mimeType="application/json" doc:name="Set Payload"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not found for registration-Id:' ++ flowVars.meter_id
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+    </flow>
+    <flow name="get:/dcc/customer:dcc-reg-request-api-config">
+        <set-variable variableName="customerId" value="#[message.inboundProperties.'http.query.params'.customerId]" doc:name="customerId"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.customer.path}/_search" method="GET" doc:name="GetCustomerDetails">
+            <http:request-builder>
+                <http:query-param paramName="q" value="#['cid:'+flowVars.customerId]"/>
+            </http:request-builder>
+        </http:request>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	cid: hit."_source".cid,
+	contact: hit."_source".contact,
+	email: hit."_source".email,
+	name: hit."_source".name
+})[0]]]></dw:set-payload>
+            <dw:set-variable variableName="Id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.hits.hits[0]."_id"]]></dw:set-variable>
+        </dw:transform-message>
+        <choice doc:name="Choice">
+            <when expression="#[message.payloadAs(java.lang.String) != 'null']">
+                <set-property propertyName="Id" value="#[flowVars.Id]" doc:name="Property"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for Customer-Id:' ++ flowVars.customerId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+
+    </flow>
+    <flow name="get:/dcc/meter:dcc-reg-request-api-config">
+        <set-variable variableName="meterId" value="#[message.inboundProperties.'http.query.params'.meterId]" doc:name="meterId"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.meter.path}/_search" method="GET" doc:name="GetMeterDetails">
+            <http:request-builder>
+                <http:query-param paramName="q" value="#['meter_id:'+flowVars.meterId]"/>
+            </http:request-builder>
+        </http:request>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	customer_id: hit."_source".customer_id,
+	meter_id: hit."_source".meter_id,
+	sid: hit."_source".sid
+})[0]]]></dw:set-payload>
+            <dw:set-variable variableName="Id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.hits.hits[0]."_id"]]></dw:set-variable>
+        </dw:transform-message>
+        <choice doc:name="Choice">
+            <when expression="#[message.payloadAs(java.lang.String) != 'null']">
+                <set-property propertyName="Id" value="#[flowVars.Id]" doc:name="Property"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for Meter-Id:' ++ flowVars.meterId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+    </flow>
+    <flow name="get:/dcc/reg_request:dcc-reg-request-api-config">
+        <choice doc:name="Choice">
+            <when expression="#[message.inboundProperties.'http.query.params'.reg_requestId != null]">
+                <set-variable variableName="reqreqId" value="#[message.inboundProperties.'http.query.params'.reg_requestId]" doc:name="reqreqId"/>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reqreq.path}/_search" method="GET" doc:name="GetReq-ReqDetails">
+                    <http:request-builder>
+                        <http:query-param paramName="q" value="#['_id'+flowVars.reqreqId]"/>
+                    </http:request-builder>
+                </http:request>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	customer_id: hit."_source".customer_id,
+	gaining_sid: hit."_source".gaining_sid,
+	loosing_sid: hit."_source".loosing_sid,
+	meter_id: hit."_source".meter_id,
+	status: hit."_source".status
+})[0]]]></dw:set-payload>
+                    <dw:set-variable variableName="Id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.hits.hits[0]."_id"]]></dw:set-variable>
+                </dw:transform-message>
+            </when>
+            <otherwise>
+                <set-variable variableName="status" value="#[message.inboundProperties.'http.query.params'.status]" doc:name="Variable"/>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reqreq.path}/_search" method="GET" doc:name="GetReq-ReqDetails">
+                    <http:request-builder>
+                        <http:query-param paramName="q" value="#['status:'+flowVars.status]"/>
+                    </http:request-builder>
+                </http:request>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	customer_id: hit."_source".customer_id,
+	gaining_sid: hit."_source".gaining_sid,
+	loosing_sid: hit."_source".loosing_sid,
+	meter_id: hit."_source".meter_id,
+	status: hit."_source".status
+})]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+        <choice doc:name="Choice">
+            <when expression="#[message.payloadAs(java.lang.String) != 'null']">
+                <set-property propertyName="Id" value="#[flowVars.Id]" doc:name="Property"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for Reg-Req-Id:' ++ flowVars.reqreqId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+
+    </flow>
+    <flow name="get:/dcc/registration:dcc-reg-request-api-config">
+        <choice doc:name="Choice">
+            <when expression="#[message.inboundProperties.'http.query.params'.regId != null]">
+                <set-variable variableName="regId" value="#[message.inboundProperties.'http.query.params'.regId]" doc:name="regId"/>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reg.path}/_search" method="GET" doc:name="GetReg-Details">
+                    <http:request-builder>
+                        <http:query-param paramName="q" value="#['_id'+flowVars.regId]"/>
+                    </http:request-builder>
+                </http:request>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	created_date: hit."_source".created_date,
+	customer_id: hit."_source".customer_id,
+	gaining_sid: hit."_source".gaining_sid,
+	status: hit."_source".status
+})[0]	]]></dw:set-payload>
+                    <dw:set-variable variableName="Id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.hits.hits[0]."_id"]]></dw:set-variable>
+                </dw:transform-message>
+            </when>
+            <otherwise>
+                <set-variable variableName="status" value="#[message.inboundProperties.'http.query.params'.status]" doc:name="Variable"/>
+                <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reg.path}/_search" method="GET" doc:name="GetReg-Details">
+                    <http:request-builder>
+                        <http:query-param paramName="q" value="#['status:'+flowVars.status]"/>
+                    </http:request-builder>
+                </http:request>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	created_date: hit."_source".created_date,
+	customer_id: hit."_source".customer_id,
+	gaining_sid: hit."_source".gaining_sid,
+	status: hit."_source".status
+})]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+        <choice doc:name="Choice">
+            <when expression="#[message.payloadAs(java.lang.String) != 'null']">
+                <set-property propertyName="Id" value="#[flowVars.Id]" doc:name="Property"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for Reg-Id:' ++ flowVars.regId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+
+    </flow>
+    <flow name="get:/dcc/supplier:dcc-reg-request-api-config">
+        <set-variable variableName="supplierId" value="#[message.inboundProperties.'http.query.params'.supplierId]" doc:name="supplierId"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.supplier.path}/_search" method="GET" doc:name="GetSupplierDetails">
+            <http:request-builder>
+                <http:query-param paramName="q" value="#['sid:'+flowVars.supplierId]"/>
+            </http:request-builder>
+        </http:request>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+(payload.hits.hits map (hit , indexOfHit) -> {
+	id:hit."_id",
+	contact: hit."_source".contact,
+	email: hit."_source".email,
+	name: hit."_source".name,
+	sid: hit."_source".sid
+})[0]]]></dw:set-payload>
+            <dw:set-variable variableName="Id"><![CDATA[%dw 1.0
+%output application/java
+---
+payload.hits.hits[0]."_id"]]></dw:set-variable>
+        </dw:transform-message>
+        <choice doc:name="Choice">
+            <when expression="#[message.payloadAs(java.lang.String) != 'null']">
+                <set-property propertyName="Id" value="#[flowVars.Id]" doc:name="Property"/>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	error:Message: 'Data not for Supplier-Id:' ++ flowVars.supplierId
+}]]></dw:set-payload>
+                </dw:transform-message>
+            </otherwise>
+        </choice>
+
+    </flow>
+    <flow name="post:/dcc/customer:application/json:dcc-reg-request-api-config">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"cid": payload.cid,
+	"contact": payload.contact,
+	"email": payload.email,
+	"name": payload.name
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.customer.path}" method="POST" doc:name="HTTP"/>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload."_id",
+	Message: "created successfully"
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+
+    </flow>
+    <flow name="post:/dcc/meter:application/json:dcc-reg-request-api-config">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"customer_id": payload.customer_id,
+	"meter_id": payload.meter_id,
+	"sid": payload.sid
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.meter.path}" method="POST" doc:name="HTTP"/>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload."_id",
+	Message: "created successfully"
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+
+    </flow>
+    <flow name="post:/dcc/reg_request:application/json:dcc-reg-request-api-config">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	
+	"customer_id": payload.customer_id,
+	"meter_id": payload.meter_id,
+	"gaining_sid": payload.gaining_sid,
+	"loosing_sid": payload.loosing_sid,	
+	"status": payload.status
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reqreq.path}" method="POST" doc:name="HTTP"/>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload."_id",
+	Message: "created successfully"
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+
+    </flow>
+    <flow name="post:/dcc/registration:application/json:dcc-reg-request-api-config">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"customer_id": payload.customer_id,
+	"gaining_sid": payload.gaining_sid,
+	"created_date": payload.created_date,
+	"status": payload.status
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.reg.path}" method="POST" doc:name="HTTP"/>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload."_id",
+	Message: "created successfully"
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+
+    </flow>
+    <flow name="post:/dcc/supplier:application/json:dcc-reg-request-api-config">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"contact": payload.contact,
+	"email": payload.email,
+	"name": payload.name,
+	"sid": payload.sid
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <http:request config-ref="Elasticsearch_DB_HTTP_Request_Configuration" path="${els.db.supplier.path}" method="POST" doc:name="HTTP"/>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	id: payload."_id",
+	Message: "created successfully"
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+
+    </flow>
+    <apikit:mapping-exception-strategy xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" name="dcc-reg-request-api-apiKitGlobalExceptionMapping">
+        <apikit:mapping statusCode="404">
+            <apikit:exception value="org.mule.module.apikit.exception.NotFoundException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{
+  &quot;error&quot;: {
+&quot;Message&quot;: &quot;Resource not found&quot; 
+  }
+}" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="405">
+            <apikit:exception value="org.mule.module.apikit.exception.MethodNotAllowedException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{
+  &quot;error&quot;: {
+&quot;Message&quot;: &quot;Method not allowed&quot; 
+  }
+}" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="415">
+            <apikit:exception value="org.mule.module.apikit.exception.UnsupportedMediaTypeException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{
+  &quot;error&quot;: {
+&quot;Message&quot;: &quot;Unsupported media type&quot;
+  }
+}" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="406">
+            <apikit:exception value="org.mule.module.apikit.exception.NotAcceptableException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{
+  &quot;error&quot;: {
+&quot;Message&quot;:  &quot;Not acceptable&quot;
+  }
+}" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="400">
+            <apikit:exception value="org.mule.module.apikit.exception.BadRequestException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{
+  &quot;error&quot;: {
+&quot;Message&quot;:  &quot;Bad request&quot;
+  }
+}" doc:name="Set Payload"/>
+        </apikit:mapping>
+    </apikit:mapping-exception-strategy>
+</mule>

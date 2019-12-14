@@ -1,0 +1,32 @@
+#%RAML 1.0
+baseUri: https://mocksvc.mulesoft.com/mocks/3554ef53-14fc-4adf-8a0e-a57c821d9696 # 
+title: dcc-switching-exp-api
+uses: 
+  Types: resources/types.raml
+        
+securitySchemes:
+  basic:
+    description: |
+      This API supports Basic Authentication.
+    type: Basic Authentication
+securedBy: [basic]
+
+/switchrequest:
+ put:
+      description: Updates Switch Request in the DB
+      body: 
+        application/json:
+          type: Types.Switch
+          example: !include examples/sample_req_put_switch.json 
+      responses:
+        200:
+         body: 
+           application/json:
+              type: !include resources/successDetails.raml  
+              example: !include examples/sample_success.json
+        500:
+          body: 
+            application/json:
+              type: Types.ErrorDetails
+              example: !include examples/sample_error.json      
+     
